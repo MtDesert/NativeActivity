@@ -17,6 +17,7 @@
 #include <android/window.h>
 #include <android_native_app_glue.h>
 
+#include"Game.h"
 #include"EngineEGL.h"
 #include"EngineGLES.h"
 
@@ -25,6 +26,7 @@
 
 //嵌入式图形库
 EngineEGL engineEGL;
+Game *game=nullptr;
 //传感器及其控制
 #define SENSOR_AMOUNT 32
 ASensorManager* sensorManager=NULL;
@@ -33,7 +35,7 @@ ASensorEventQueue* sensorEventQueue=NULL;
 
 //重绘
 static void engine_draw_frame() {
-	glClearColor(0,1,0,1);
+	glClearColor(0,0,0.5,1);
 	glClear(GL_COLOR_BUFFER_BIT);
 	engineEGL.swapBuffer();
 }
@@ -105,7 +107,7 @@ static void engine_handle_cmd(struct android_app *app, int32_t cmd) {
 			// The window is being shown, get it ready.
 			if (app->window != NULL) {
 				engineEGL.initial(app->window);
-				engine_draw_frame();
+				game->render();
 			}
 		break;
 		case APP_CMD_TERM_WINDOW:
@@ -125,18 +127,14 @@ static void engine_handle_cmd(struct android_app *app, int32_t cmd) {
 			for(;i<SENSOR_AMOUNT;++i){
 				stopSensor(allSensors[i]);
 			}
-			//停止动画
-			engine_draw_frame();
 		}break;
 	}
 }
 
 extern"C" void android_main(struct android_app* app) {
 	LOGI("主函数开始启动");
-	EngineEGL engine;
 	app_dummy();//删除此函数可能导致启动失败
-	memset(&engine, 0, sizeof(engine));
-	app->userData = NULL;
+	game=Game::newGame();
 	app->onAppCmd = engine_handle_cmd;
 	app->onInputEvent = engine_handle_input;
 	
@@ -180,6 +178,9 @@ extern"C" void android_main(struct android_app* app) {
 				return;
 			}
 		}
-		engine_draw_frame();
+		game->addTimeSlice(16666);
+		game->render();
+		engineEGL.swapBuffer();
 	}
+	delete game;
 }
