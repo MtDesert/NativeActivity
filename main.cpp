@@ -19,26 +19,18 @@
 
 #include"Game.h"
 #include"EngineEGL.h"
-#include"EngineGLES.h"
+#include"SysTime.h"
 
 #define LOGI(...) ((void)__android_log_print(ANDROID_LOG_INFO, "games.engines", __VA_ARGS__))
 #define LOGW(...) ((void)__android_log_print(ANDROID_LOG_WARN, "games.engines", __VA_ARGS__))
 
-//嵌入式图形库
-EngineEGL engineEGL;
-Game *game=nullptr;
+EngineEGL engineEGL;//嵌入式图形库
+SysTime sysTime;//linux时间模块
 //传感器及其控制
 #define SENSOR_AMOUNT 32
 ASensorManager* sensorManager=NULL;
 const ASensor* allSensors[SENSOR_AMOUNT]={NULL};
 ASensorEventQueue* sensorEventQueue=NULL;
-
-//重绘
-static void engine_draw_frame() {
-	glClearColor(0,0,0.5,1);
-	glClear(GL_COLOR_BUFFER_BIT);
-	engineEGL.swapBuffer();
-}
 
 static int32_t engine_handle_input(struct android_app* app,AInputEvent* event){
 	int32_t type=AInputEvent_getType(event);
@@ -96,47 +88,60 @@ void stopSensor(const ASensor *sensor){//关闭传感器
 	if(sensor)ASensorEventQueue_disableSensor(sensorEventQueue,sensor);
 }
 
-static void engine_handle_cmd(struct android_app *app, int32_t cmd) {
+static void engine_handle_cmd(struct android_app *app,int32_t cmd) {
 	switch (cmd) {
-		case APP_CMD_SAVE_STATE:
-			// The system has asked us to save our current state.  Do so.
-			app->savedState = NULL;
-			app->savedStateSize = 0;
-		break;
-		case APP_CMD_INIT_WINDOW:
-			// The window is being shown, get it ready.
-			if (app->window != NULL) {
+		case APP_CMD_INPUT_CHANGED:break;
+		case APP_CMD_INIT_WINDOW:// The window is being shown, get it ready.
+			if (app->window) {
 				engineEGL.initial(app->window);
-				game->render();
 			}
 		break;
-		case APP_CMD_TERM_WINDOW:
-			// The window is being hidden or closed, clean it up.
+		case APP_CMD_TERM_WINDOW:// The window is being hidden or closed, clean it up.
 			engineEGL.terminate();
 		break;
-		case APP_CMD_GAINED_FOCUS:{//获得焦点
+		case APP_CMD_WINDOW_RESIZED:break;
+		case APP_CMD_WINDOW_REDRAW_NEEDED:
+			LOGI("Redraw");
+			//game->render();
+			//engineEGL.swapBuffer();
+		break;
+		case APP_CMD_CONTENT_RECT_CHANGED:break;
+		case APP_CMD_GAINED_FOCUS:{
 			//启动所有传感器
 			int i=0;
 			for(;i<SENSOR_AMOUNT;++i){
 				startupSensor(allSensors[i]);
 			}
 		}break;
-		case APP_CMD_LOST_FOCUS:{//失去焦点
+		case APP_CMD_LOST_FOCUS:{
 			//停止所有传感器
 			int i=0;
 			for(;i<SENSOR_AMOUNT;++i){
 				stopSensor(allSensors[i]);
 			}
 		}break;
+		case APP_CMD_CONFIG_CHANGED:break;
+		case APP_CMD_LOW_MEMORY:break;
+		case APP_CMD_START:break;
+		case APP_CMD_RESUME:break;
+		case APP_CMD_SAVE_STATE:// The system has asked us to save our current state.  Do so.
+			app->savedState = NULL;
+			app->savedStateSize = 0;
+		break;
+		case APP_CMD_PAUSE:break;
+		case APP_CMD_STOP:break;
+		case APP_CMD_DESTROY:break;
+		default:;
 	}
 }
 
 extern"C" void android_main(struct android_app* app) {
 	LOGI("主函数开始启动");
 	app_dummy();//删除此函数可能导致启动失败
-	game=Game::newGame();
+	Game *game=Game::newGame();
 	app->onAppCmd = engine_handle_cmd;
 	app->onInputEvent = engine_handle_input;
+	app->userData=game;//以便给回调函数使用
 	
 	//显示所有传感器信息
 	sensorManager = ASensorManager_getInstance();
@@ -150,12 +155,15 @@ extern"C" void android_main(struct android_app* app) {
 	LOGI("编译时间%s %s",__DATE__,__TIME__);
 	int ident=0;
 	int events=0;
+	sysTime.usecElapsed();
+	int timeSlice=0,elapsed=0,redrawInterval=20000;
 	struct android_poll_source* source=NULL;
-	while (1) {
+	while (true) {
 		// If not animating, we will block forever waiting for events.
 		// If animating, we loop until all events are read, then continue
 		// to draw the next frame of animation.
-		while ((ident=ALooper_pollAll(1,NULL,&events,(void**)&source)) >= 0) {
+		ident=ALooper_pollAll(0,NULL,&events,(void**)&source);
+		for(;ident >= 0;ident=ALooper_pollAll(1,NULL,&events,(void**)&source)){
 			//处理事件
 			if (source)source->process(app,source);
 			//有传感器事件,可以处理
@@ -178,9 +186,23 @@ extern"C" void android_main(struct android_app* app) {
 				return;
 			}
 		}
-		game->addTimeSlice(16666);
-		game->render();
-		engineEGL.swapBuffer();
+		switch(ident){
+			case ALOOPER_POLL_WAKE:LOGI("唤醒");break;
+			case ALOOPER_POLL_CALLBACK:LOGI("回调");break;
+			case ALOOPER_POLL_TIMEOUT:
+				//增加时间片并判断是否重绘
+				elapsed=sysTime.usecElapsed();
+				game->addTimeSlice(elapsed);
+				timeSlice += elapsed;
+				if(timeSlice>=redrawInterval){
+					timeSlice-=redrawInterval;
+					game->render();
+					engineEGL.swapBuffer();
+				}
+			break;
+			case ALOOPER_POLL_ERROR:LOGI("错误");break;
+			default:;
+		}
 	}
 	delete game;
 }

@@ -1,5 +1,5 @@
 APP_OPTIM := release #debug
-APP_ABI := armeabi #all armeabi armeabi-v7a x86 mips
+APP_ABI := armeabi-v7a #all armeabi armeabi-v7a x86 mips
 #APP_CFLAGS :=
 APP_CPPFLAGS += -std=c++11
 #APP_BUILD_SCRIPT := Android.mk #This is default
